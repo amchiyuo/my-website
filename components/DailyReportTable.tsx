@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { RiskRecord, RiskLevel } from '../types';
+import { RiskRecord, RiskLevel, ReviewStatus, ReviewResult } from '../types';
 import { ArrowDownCircle, BarChart2, X, Building2, Download } from 'lucide-react';
 
 interface DailyReportTableProps {
@@ -13,12 +13,19 @@ interface DailyAggregatedData {
   high: number;
   medium: number;
   low: number;
+  
+  // New merged fields
+  reviewedTotal: number;
+  trueFraud: number;
+  suspected: number;
+  illegal: number;
+  falsePositive: number;
 }
 
 const DailyReportTable: React.FC<DailyReportTableProps> = ({ data }) => {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
-  // 1. Aggregate data by date for the main table
+  // 1. Aggregate data by date
   const dailyData = useMemo(() => {
     const map = new Map<string, DailyAggregatedData>();
 
@@ -34,15 +41,42 @@ const DailyReportTable: React.FC<DailyReportTableProps> = ({ data }) => {
           total: 0, 
           high: 0, 
           medium: 0, 
-          low: 0 
+          low: 0,
+          reviewedTotal: 0,
+          trueFraud: 0,
+          suspected: 0,
+          illegal: 0,
+          falsePositive: 0
         });
       }
 
       const stats = map.get(dateKey)!;
+      
+      // Basic Counts
       stats.total += count;
       if (record.riskLevel === RiskLevel.HIGH) stats.high += count;
       else if (record.riskLevel === RiskLevel.MEDIUM) stats.medium += count;
       else if (record.riskLevel === RiskLevel.LOW) stats.low += count;
+
+      // Review Counts
+      if (record.reviewStatus === ReviewStatus.REVIEWED) {
+        stats.reviewedTotal += count;
+        
+        switch (record.reviewResult) {
+          case ReviewResult.TRUE_FRAUD:
+            stats.trueFraud += count;
+            break;
+          case ReviewResult.SUSPECTED_FRAUD:
+            stats.suspected += count;
+            break;
+          case ReviewResult.ILLEGAL_BUSINESS:
+            stats.illegal += count;
+            break;
+          case ReviewResult.FALSE_POSITIVE:
+            stats.falsePositive += count;
+            break;
+        }
+      }
     });
 
     return Array.from(map.values()).sort((a, b) => b.timestamp - a.timestamp);
@@ -52,8 +86,6 @@ const DailyReportTable: React.FC<DailyReportTableProps> = ({ data }) => {
   const drillDownData = useMemo(() => {
     if (!selectedDate) return null;
 
-    // Filter data for the specific date AND only High/Medium risks
-    // Note: High/Medium risks are generated as single records (count=1), so summing count is safe/correct
     const targetRecords = data.filter(d => {
       const dDate = new Date(d.callTime).toLocaleDateString('zh-CN');
       return dDate === selectedDate && (d.riskLevel === RiskLevel.HIGH || d.riskLevel === RiskLevel.MEDIUM);
@@ -74,7 +106,6 @@ const DailyReportTable: React.FC<DailyReportTableProps> = ({ data }) => {
       enterpriseMap.get(r.enterpriseId)!.count += count;
     });
 
-    // Convert to array and sort by count desc
     const list = Array.from(enterpriseMap.values())
       .map(item => ({
         ...item,
@@ -86,28 +117,42 @@ const DailyReportTable: React.FC<DailyReportTableProps> = ({ data }) => {
   }, [selectedDate, data]);
 
 
-  // Helper to close modal
   const closeModal = () => setSelectedDate(null);
 
   // Export CSV Handler
   const handleExport = () => {
     if (dailyData.length === 0) return;
 
-    const headers = ['日期', '总检测数', '高风险数', '中风险数', '中高风险占比', '低风险数'];
+    const headers = [
+      '日期', 
+      '总检测数', 
+      '高风险数', 
+      '中风险数', 
+      '低风险数', 
+      '中高风险占比',
+      '已复核总数',
+      '已复核占比',
+      '真实诈骗',
+      '疑似诈骗',
+      '业务违法',
+      '场景误判'
+    ];
     
     const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [
       headers.join(','),
       ...dailyData.map(row => {
         const midHighCount = row.high + row.medium;
         const midHighRate = row.total > 0 ? ((midHighCount / row.total) * 100).toFixed(2) + '%' : '0.00%';
-        return `${row.date},${row.total},${row.high},${row.medium},${midHighRate},${row.low}`;
+        const reviewRate = midHighCount > 0 ? ((row.reviewedTotal / midHighCount) * 100).toFixed(2) + '%' : '0.00%';
+
+        return `${row.date},${row.total},${row.high},${row.medium},${row.low},${midHighRate},${row.reviewedTotal},${reviewRate},${row.trueFraud},${row.suspected},${row.illegal},${row.falsePositive}`;
       })
     ].join('\n');
 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `每日风险检测报表_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `每日风险综合报表_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -128,7 +173,7 @@ const DailyReportTable: React.FC<DailyReportTableProps> = ({ data }) => {
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <div>
             <h3 className="text-lg font-bold text-gray-900">每日风险检测报表</h3>
-            <p className="text-sm text-gray-500">按日期统计检测量与风险分布</p>
+            <p className="text-sm text-gray-500">包含风险分布及复核结果详情</p>
           </div>
           <button 
             onClick={handleExport}
@@ -139,27 +184,33 @@ const DailyReportTable: React.FC<DailyReportTableProps> = ({ data }) => {
           </button>
         </div>
 
-        <div className="overflow-x-auto custom-scrollbar max-h-[500px]">
+        <div className="overflow-x-auto custom-scrollbar max-h-[600px]">
           <table className="min-w-full divide-y divide-gray-200 relative">
             <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
               <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">日期</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32 fixed-col bg-gray-50">日期</th>
                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-blue-600 uppercase tracking-wider">总检测数</th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-red-600 uppercase tracking-wider">高风险数</th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-amber-600 uppercase tracking-wider">中风险数</th>
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-red-600 uppercase tracking-wider">高风险</th>
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-amber-600 uppercase tracking-wider">中风险</th>
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">低风险</th>
                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-orange-600 uppercase tracking-wider">
-                  <div className="flex items-center justify-end gap-1">
-                    中高风险占比
-                    <span className="text-[10px] text-gray-400 font-normal">(点击查看详情)</span>
-                  </div>
+                   中高风险占比
                 </th>
-                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">低风险数</th>
+                
+                {/* Merged Review Columns */}
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-blue-700 uppercase tracking-wider border-l border-gray-200 bg-blue-50/30">已复核总数</th>
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-emerald-600 uppercase tracking-wider bg-blue-50/30">复核占比</th>
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-red-600 uppercase tracking-wider bg-blue-50/30">真实诈骗</th>
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-orange-600 uppercase tracking-wider bg-blue-50/30">疑似诈骗</th>
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-violet-600 uppercase tracking-wider bg-blue-50/30">业务违法</th>
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-emerald-600 uppercase tracking-wider bg-blue-50/30">场景误判</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {dailyData.map((row) => {
                 const midHighCount = row.high + row.medium;
                 const midHighRate = row.total > 0 ? (midHighCount / row.total) * 100 : 0;
+                const reviewRate = midHighCount > 0 ? (row.reviewedTotal / midHighCount) * 100 : 0;
                 
                 let badgeClass = 'bg-gray-100 text-gray-600 border-gray-200';
                 if (midHighRate > 40) badgeClass = 'bg-red-50 text-red-700 border-red-200';
@@ -181,6 +232,9 @@ const DailyReportTable: React.FC<DailyReportTableProps> = ({ data }) => {
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-amber-600 font-medium">
                       {row.medium.toLocaleString()}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500">
+                      {row.low.toLocaleString()}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                       <button 
                         onClick={() => setSelectedDate(row.date)}
@@ -191,8 +245,27 @@ const DailyReportTable: React.FC<DailyReportTableProps> = ({ data }) => {
                         <BarChart2 className="w-3 h-3 opacity-60 group-hover:opacity-100" />
                       </button>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500">
-                      {row.low.toLocaleString()}
+
+                    {/* Merged Review Data */}
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-blue-700 border-l border-gray-200 bg-blue-50/10">
+                      {row.reviewedTotal.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-emerald-700 font-medium bg-blue-50/10">
+                      <span className={`inline-block px-2 py-0.5 rounded text-xs ${reviewRate >= 90 ? 'bg-emerald-100 text-emerald-800' : reviewRate >= 50 ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-600'}`}>
+                         {reviewRate.toFixed(0)}%
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-red-600 bg-blue-50/10">
+                      {row.trueFraud}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-orange-600 bg-blue-50/10">
+                      {row.suspected}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-violet-600 bg-blue-50/10">
+                      {row.illegal}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-emerald-600 bg-blue-50/10">
+                      {row.falsePositive}
                     </td>
                   </tr>
                 );

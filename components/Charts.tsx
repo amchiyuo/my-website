@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
+  BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area
 } from 'recharts';
@@ -13,7 +13,8 @@ const COLORS = {
   FRAUD: '#dc2626', // Red-600
   SUSPECT: '#f97316', // Orange-500
   FALSE: '#10b981', // Emerald-500
-  ILLEGAL: '#8b5cf6' // Violet-500
+  ILLEGAL: '#8b5cf6', // Violet-500
+  NORMAL_BG: '#e5e7eb' // Gray-200
 };
 
 interface ChartProps {
@@ -33,13 +34,12 @@ export const RiskTrendChart: React.FC<ChartProps> = ({ data }) => {
       const entry = map.get(dateStr)!;
       const n = d.count || 1;
       
-      // d.riskLevel is now localized (e.g. "高风险")
       if (entry[d.riskLevel] !== undefined) {
         entry[d.riskLevel] += n;
       }
     });
 
-    return Array.from(map.values()).reverse(); // Should be chronological
+    return Array.from(map.values()).reverse(); 
   }, [data]);
 
   return (
@@ -126,36 +126,81 @@ export const RiskDistributionPie: React.FC<ChartProps> = ({ data }) => {
       if (d.riskLevel === RiskLevel.MEDIUM) m += n;
       if (d.riskLevel === RiskLevel.LOW) l += n;
     });
-    return [
+
+    const total = h + m + l;
+    const abnormalTotal = h + m;
+    const safetyRate = total > 0 ? (l / total) * 100 : 0;
+    
+    // Only show High and Medium in Pie to avoid Low risk dominating the chart
+    const pieData = [
       { name: '高风险', value: h, color: COLORS.HIGH },
       { name: '中风险', value: m, color: COLORS.MEDIUM },
-      { name: '低风险', value: l, color: COLORS.LOW },
-    ];
+    ].filter(item => item.value > 0);
+
+    return { total, h, m, l, safetyRate, pieData, abnormalTotal };
   }, [data]);
 
   return (
-    <div className="h-[300px] w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={stats}
-            cx="50%"
-            cy="50%"
-            innerRadius={50} 
-            outerRadius={90}
-            paddingAngle={2}
-            dataKey="value"
-            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-            labelLine={true}
-          >
-            {stats.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={entry.color} />
-            ))}
-          </Pie>
-          <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }} />
-          <Legend verticalAlign="bottom" height={36} />
-        </PieChart>
-      </ResponsiveContainer>
+    <div className="h-[300px] w-full flex flex-col">
+      {/* 1. Safety Level Bar (Macro View) */}
+      <div className="mb-6 px-2">
+        <div className="flex justify-between items-end mb-2">
+           <span className="text-sm font-medium text-gray-500">平台安全水位</span>
+           <span className="text-sm font-bold text-emerald-600">{stats.safetyRate.toFixed(2)}% <span className="text-xs font-normal text-gray-400">正常业务</span></span>
+        </div>
+        <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden flex">
+           {/* Low Risk (Safety) Part */}
+           <div 
+             className="h-full bg-emerald-400" 
+             style={{ width: `${stats.safetyRate}%` }} 
+           />
+           {/* High/Med Risk Part */}
+           <div 
+             className="h-full bg-red-400" 
+             style={{ width: `${100 - stats.safetyRate}%` }} 
+           />
+        </div>
+      </div>
+
+      {/* 2. Risk Composition Pie (Micro View - Only Abnormal) */}
+      <div className="flex-1 relative">
+         <div className="absolute top-0 left-0 text-xs font-semibold text-gray-400 bg-gray-50 px-2 py-1 rounded">
+            仅展示异常分布
+         </div>
+         {stats.abnormalTotal > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={stats.pieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60} 
+                  outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="value"
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  labelLine={true}
+                >
+                  {stats.pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip 
+                  formatter={(value: number) => [`${value.toLocaleString()} 条`, '检测量']}
+                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }} 
+                />
+                <Legend verticalAlign="bottom" height={36} />
+              </PieChart>
+            </ResponsiveContainer>
+         ) : (
+            <div className="h-full flex flex-col items-center justify-center text-gray-300">
+               <div className="w-24 h-24 rounded-full border-4 border-gray-100 flex items-center justify-center mb-2">
+                  <span className="text-2xl font-bold text-emerald-400">100%</span>
+               </div>
+               <p className="text-sm">暂无中高风险异常</p>
+            </div>
+         )}
+      </div>
     </div>
   );
 };

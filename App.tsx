@@ -6,20 +6,16 @@ import {
   Calendar, 
   AlertTriangle, 
   CheckCircle2, 
-  Ban, 
-  HelpCircle,
   Activity,
-  X,
-  Scale
+  X
 } from 'lucide-react';
 
 import { generateMockData, calculateStats } from './utils/mockData';
 import { RiskRecord, TimeFilter, TabView } from './types';
 import StatCard from './components/StatCard';
-import { RiskTrendChart, RiskDistributionPie } from './components/Charts';
+import { RiskDistributionPie } from './components/Charts';
 import EnterpriseTable from './components/EnterpriseTable';
 import DailyReportTable from './components/DailyReportTable';
-import DailyReviewReportTable from './components/DailyReviewReportTable';
 
 const App: React.FC = () => {
   // State
@@ -146,22 +142,6 @@ const App: React.FC = () => {
     </button>
   );
 
-  const renderOutcomeSummary = (title: string, count: number, color: string, icon: React.ReactNode) => {
-    return (
-      <div className="bg-gray-50 rounded-lg p-4 border border-gray-100 flex flex-col justify-between h-24">
-        <div className="flex items-center justify-between">
-           <span className="text-sm text-gray-500 font-medium">{title}</span>
-           <div className={`p-1.5 rounded-md ${color.replace('text-', 'bg-').replace('600', '100')}`}>
-             {icon}
-           </div>
-        </div>
-        <div>
-          <div className={`text-2xl font-bold ${color}`}>{count.toLocaleString()}</div>
-        </div>
-      </div>
-    );
-  };
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
@@ -251,10 +231,9 @@ const App: React.FC = () => {
             </div>
           </div>
           
-          {/* Navigation Tabs */}
+          {/* Navigation Tabs - Removed Review Analysis */}
           <div className="flex space-x-2 py-3 overflow-x-auto border-t border-gray-100 md:border-none mt-2 md:mt-0">
             {renderTabButton('overview', '风险概览', <LayoutDashboard className="w-4 h-4" />)}
-            {renderTabButton('review', '复核分析', <CheckCircle2 className="w-4 h-4" />)}
             {renderTabButton('enterprise', '企业风控明细', <Building2 className="w-4 h-4" />)}
           </div>
         </div>
@@ -300,55 +279,49 @@ const App: React.FC = () => {
         {/* Tab Content: Risk Overview */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Trend Chart */}
-              <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            
+            {/* Distribution Chart - Now Full Width since Trend Chart is removed */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                 <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-lg font-bold text-gray-900">风险检测趋势</h3>
-                  <span className="text-sm text-gray-500">每日各风险等级检测量</span>
-                </div>
-                <RiskTrendChart data={filteredData} />
+                <h3 className="text-lg font-bold text-gray-900">异常风险构成分析</h3>
+                <span className="text-sm text-gray-500">安全水位与异常分布</span>
               </div>
               
-              {/* Distribution Chart */}
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                 <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-lg font-bold text-gray-900">风险分布占比</h3>
-                  <span className="text-sm text-gray-500">整体数据概览</span>
-                </div>
-                <RiskDistributionPie data={filteredData} />
-                <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-                   <div className="p-2 bg-red-50 rounded text-red-700 font-semibold">高风险<br/>{stats.highRiskRate.toFixed(1)}%</div>
-                   <div className="p-2 bg-amber-50 rounded text-amber-700 font-semibold">中风险<br/>{mediumRiskRate}%</div>
-                   <div className="p-2 bg-blue-50 rounded text-blue-700 font-semibold">低风险<br/>{((stats.lowRiskCount / stats.totalDetections) * 100).toFixed(1)}%</div>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                 {/* Updated Chart Component */}
+                 <RiskDistributionPie data={filteredData} />
+                 
+                 <div className="space-y-4">
+                    <h4 className="font-semibold text-gray-700">风险占比详情</h4>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100">
+                        <span className="text-red-700 font-medium">高风险</span>
+                        <div className="text-right">
+                           <span className="block text-lg font-bold text-red-800">{stats.highRiskRate.toFixed(2)}%</span>
+                           <span className="text-xs text-red-600">{stats.highRiskCount.toLocaleString()} 条</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-100">
+                        <span className="text-amber-700 font-medium">中风险</span>
+                        <div className="text-right">
+                           <span className="block text-lg font-bold text-amber-800">{mediumRiskRate}%</span>
+                           <span className="text-xs text-amber-600">{stats.mediumRiskCount.toLocaleString()} 条</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-100">
+                        <span className="text-blue-700 font-medium">低风险 (正常)</span>
+                        <div className="text-right">
+                           <span className="block text-lg font-bold text-blue-800">{((stats.lowRiskCount / stats.totalDetections) * 100).toFixed(2)}%</span>
+                           <span className="text-xs text-blue-600">{stats.lowRiskCount.toLocaleString()} 条</span>
+                        </div>
+                      </div>
+                    </div>
+                 </div>
               </div>
             </div>
 
-            {/* Daily Data Table Report */}
+            {/* Daily Data Table Report - Now contains merged review data */}
             <DailyReportTable data={filteredData} />
-          </div>
-        )}
-
-        {/* Tab Content: Review Analysis */}
-        {activeTab === 'review' && (
-          <div className="space-y-6">
-             
-             {/* Summary Cards */}
-             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                <h3 className="text-lg font-bold text-gray-900 mb-2">复核结果汇总</h3>
-                <p className="text-sm text-gray-500 mb-4">共复核 {stats.reviewedCount.toLocaleString()} 条数据</p>
-                
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                   {renderOutcomeSummary('真实诈骗', stats.trueFraudCount, 'text-red-600', <Ban className="w-5 h-5 text-red-600"/>)}
-                   {renderOutcomeSummary('疑似诈骗', stats.suspectedFraudCount, 'text-orange-600', <HelpCircle className="w-5 h-5 text-orange-600"/>)}
-                   {renderOutcomeSummary('业务违法', stats.illegalBusinessCount, 'text-violet-600', <Scale className="w-5 h-5 text-violet-600"/>)}
-                   {renderOutcomeSummary('场景误判', stats.falsePositiveCount, 'text-emerald-600', <CheckCircle2 className="w-5 h-5 text-emerald-600"/>)}
-                </div>
-             </div>
-
-             {/* Daily Review Table */}
-             <DailyReviewReportTable data={filteredData} />
           </div>
         )}
 
